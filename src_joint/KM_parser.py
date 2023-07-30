@@ -13,10 +13,7 @@ use_cuda = torch.cuda.is_available()
 if use_cuda:
     torch_t = torch.cuda
     def from_numpy(ndarray):
-        if float(sys.version[:3]) <= 3.6:
-            return eval('torch.from_numpy(ndarray).pin_memory().cuda(async=True)')
-        else:
-            return torch.from_numpy(ndarray).pin_memory().cuda(non_blocking=True)
+        return torch.from_numpy(ndarray).pin_memory().cuda(non_blocking=True)
 else:
     print("Not using CUDA!")
     torch_t = torch
@@ -39,7 +36,7 @@ ROOT = "<START>"
 Sub_Head = "<H>"
 No_Head = "<N>"
 
-DTYPE = torch.uint8 if float(sys.version[:3]) < 3.7 else torch.bool
+DTYPE = torch.bool if float(sys.version[:3]) < 3.7 else torch.bool
 
 TAG_UNK = "UNK"
 
@@ -227,7 +224,7 @@ class ScaledDotProductAttention(nn.Module):
                     'with Attention logit tensor shape ' \
                     '{}.'.format(attn_mask.size(), attn.size())
 
-            attn.data.masked_fill_(attn_mask, -float('inf'))
+            attn.data.masked_fill_(attn_mask.to(torch.bool), -float('inf'))
 
         attn = self.softmax(attn)
         # Note that this makes the distribution not sum to 1. At some point it
@@ -394,7 +391,7 @@ class MultiHeadAttention(nn.Module):
             q_padded, k_padded, v_padded,
             attn_mask=attn_mask,
             )
-        outputs = outputs_padded[output_mask]
+        outputs = outputs_padded[output_mask.to(torch.bool)]
         # (n_head * len_inp) x d_kv
         outputs = self.combine_v(outputs)
         # len_inp x d_model
@@ -1079,7 +1076,7 @@ class LabelAttention(nn.Module):
         # on the best model, this is one value vector per label that is repeated max_len times
         if not self.q_as_matrix:
             outputs_padded = outputs_padded.repeat(1,output_mask.size(-1),1)
-        outputs = outputs_padded[output_mask]
+        outputs = outputs_padded[output_mask.to(torch.bool)]
         # outputs: (d_l * len_inp) x d_kv or LAL: (d_l * len_inp) x d_kv
         # output_mask: (d_l * batch_size) x max_len
         torch.cuda.empty_cache()
@@ -1751,7 +1748,7 @@ class ChartParser(nn.Module):
             # features = all_encoder_layers[-1]
             features = transformer_outputs[0]
 
-            features_packed = features.masked_select(all_word_end_mask.to(DTYPE).unsqueeze(-1)).reshape(-1,
+            features_packed = features.masked_select(all_word_end_mask.to(torch.bool).unsqueeze(-1)).reshape(-1,
                                                                                                               features.shape[
                                                                                                                   -1])
 
@@ -1795,7 +1792,7 @@ class ChartParser(nn.Module):
             assert self.bert is not None
             features = self.project_bert(features)
             fencepost_annotations_start = features.masked_select(all_word_start_mask.to(DTYPE).unsqueeze(-1)).reshape(-1, features.shape[-1])
-            fencepost_annotations_end = features.masked_select(all_word_end_mask.to(DTYPE).unsqueeze(-1)).reshape(-1, features.shape[-1])
+            fencepost_annotations_end = features.masked_select(all_word_end_mask.to(torch.bool).unsqueeze(-1)).reshape(-1, features.shape[-1])
 
         fp_startpoints = batch_idxs.boundaries_np[:-1]
         fp_endpoints = batch_idxs.boundaries_np[1:] - 1
